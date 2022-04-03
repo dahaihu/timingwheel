@@ -1,6 +1,7 @@
 package timi
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -31,6 +32,7 @@ func newTimingWheel(tickMs, wheelSize int64) *TimingWheel {
 		wheelSize: wheelSize,
 		next:      nil,
 		slots:     make([][]job, wheelSize),
+		accept:    make(chan *Job),
 	}
 }
 
@@ -48,6 +50,7 @@ func (t *TimingWheel) makeNext() *TimingWheel {
 func (t *TimingWheel) add(job func(), after int64) {
 	margin := t.tickMs * (t.wheelSize - t.index)
 	if after < margin {
+		fmt.Printf("now is %d, gap is %d\n", t.now, after/t.tickMs)
 		idx := t.index + after/t.tickMs
 		t.slots[idx] = append(t.slots[idx], job)
 	} else {
@@ -60,6 +63,7 @@ func (t *TimingWheel) add(job func(), after int64) {
 
 func (t *TimingWheel) Start() {
 	t.now = timestamp()
+	fmt.Printf("timing wheel start time is %d\n", t.now)
 	go func() {
 		updated := true
 		var timer <-chan time.Time
@@ -69,20 +73,23 @@ func (t *TimingWheel) Start() {
 				updated = false
 			}
 			select {
-			case <-timer:
+			case heheda := <-timer:
+				fmt.Printf("tick time is is %v , tick time ms is %v, "+
+					"timestamp is %v\n",
+					heheda,
+					heheda.UnixMilli(), timestamp())
 				jobs := t.slots[t.index]
 				for _, job := range jobs {
 					go job()
 				}
+				t.slots[t.index] = make([]job, 0, 0)
 				t.index = (t.index + 1) % t.wheelSize
 				t.now = t.now + t.tickMs
 				updated = true
 			case job := <-t.accept:
-				if job.timestamp < t.now {
-					go job.job()
-				} else {
-					t.add(job.job, job.timestamp-t.now)
-				}
+				fmt.Printf("accept job %v, gap is %d \n", *job,
+					job.timestamp-t.now)
+				t.add(job.job, job.timestamp-t.now)
 			}
 		}
 	}()
