@@ -18,8 +18,8 @@ func Test_timingWheel(t *testing.T) {
 	timingWheel := newTimingWheel(100, 10, logger)
 	timingWheel.Start()
 	now := timestamp()
-	for i := 0; i < 100; i++ {
-		funcTime := now + int64(i+1)*1000 + rand.Int63n(10) - 5
+	for i := 0; i < 10; i++ {
+		funcTime := now + 1000 + rand.Int63n(10) - 5
 		timingWheel.Offer(funcTime, func() {
 			fmt.Println("hello world")
 		})

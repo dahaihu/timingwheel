@@ -1,6 +1,7 @@
 package timi
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -12,9 +13,9 @@ type TimingWheel struct {
 	tickMs    int64
 	wheelSize int64
 	slots     [][]*Job
-	next      *TimingWheel
 	index     int64
 	accept    chan *Job
+	next      *TimingWheel
 	log       *zap.Logger
 }
 
@@ -81,7 +82,10 @@ func (t *TimingWheel) add(job *Job, after int64, level int) {
 		t.log.Debug("job added",
 			zap.Int("level", level),
 			zap.Int64("index", idx),
-			zap.Int64("gap", after))
+			zap.Int64("gap", after),
+			zap.Int64("after", job.after),
+			zap.Int64("runtime", job.runtime),
+			zap.Int64("now", t.now))
 		t.slots[idx] = append(t.slots[idx], job)
 	} else {
 		if t.next == nil {
@@ -92,8 +96,8 @@ func (t *TimingWheel) add(job *Job, after int64, level int) {
 }
 
 func (t *TimingWheel) reAdd(job *Job) {
-	t.add(job, job.after, 0)
-	// todo assert job level all in level 0
+	fmt.Println("job readd")
+	t.add(job, job.runtime-t.now, 0)
 }
 
 func (t *TimingWheel) advance() []*Job {
@@ -128,6 +132,7 @@ func (t *TimingWheel) Start() {
 				t.log.Debug("tick time",
 					zap.Int64("time", tickTime.UnixMilli()),
 					zap.Int64("cur", timestamp()),
+					zap.Int64("timingWheel now", t.now),
 					zap.Int64("index", t.index))
 				jobs := t.advance()
 				for _, job := range jobs {
@@ -141,7 +146,7 @@ func (t *TimingWheel) Start() {
 					job.added = true
 					job.addedTime = t.now
 					job.after = job.runtime - t.now
-					t.add(job, job.runtime-t.now, 0)
+					t.add(job, job.after, 0)
 				}
 				job.wg.Done()
 			}
