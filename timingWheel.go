@@ -123,13 +123,8 @@ func (t *TimingWheel) tickDuration() time.Duration {
 func (t *TimingWheel) Start() {
 	t.now = time.Now()
 	go func() {
-		updated := true
 		ticker := time.NewTicker(t.tickDuration())
 		for {
-			if updated {
-				updated = false
-				ticker.Reset(t.tickDuration())
-			}
 			select {
 			case tickTime := <-ticker.C:
 				t.log.Debug("tick time",
@@ -141,7 +136,7 @@ func (t *TimingWheel) Start() {
 				for _, job := range jobs {
 					go job.run(t.log, tickTime.UnixMilli())
 				}
-				updated = true
+				ticker.Reset(t.tickDuration())
 			case job := <-t.accept:
 				if job.runtime < t.timestamp() {
 					job.added = false

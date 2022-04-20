@@ -15,7 +15,7 @@ func Test_no(t *testing.T) {
 func Test_timingWheel(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 
-	timingWheel := newTimingWheel(100, 10, logger)
+	timingWheel := newTimingWheel(200, 10, logger)
 	timingWheel.Start()
 	now := timestamp()
 	for i := 0; i < 10; i++ {
