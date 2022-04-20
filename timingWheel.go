@@ -103,7 +103,7 @@ func (t *TimingWheel) advance(now time.Time) []*Job {
 	jobs := t.slots[t.index]
 	t.slots[t.index] = make([]*Job, 0)
 	t.index = t.index + 1
-	t.now = now
+	t.now = t.now.Add(time.Duration(t.tickMs) * time.Millisecond)
 	if t.index == t.wheelSize {
 		t.index = 0
 		if t.next != nil {
