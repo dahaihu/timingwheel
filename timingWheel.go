@@ -1,7 +1,6 @@
 package timi
 
 import (
-	"fmt"
 	"sync"
 	"time"
 
@@ -9,7 +8,7 @@ import (
 )
 
 type TimingWheel struct {
-	now       int64
+	now       time.Time
 	tickMs    int64
 	wheelSize int64
 	slots     [][]*Job
@@ -22,10 +21,14 @@ type TimingWheel struct {
 type Job struct {
 	job       func()
 	runtime   int64
-	addedTime int64
+	addedTime time.Time
 	added     bool
 	after     int64
 	wg        *sync.WaitGroup
+}
+
+func (t *TimingWheel) timestamp() int64 {
+	return t.now.UnixMilli()
 }
 
 func (t *TimingWheel) newJob(runtime int64, job func()) *Job {
@@ -41,10 +44,10 @@ func (t *TimingWheel) newJob(runtime int64, job func()) *Job {
 func (j *Job) run(logger *zap.Logger, tickTime int64) {
 	logger.Debug("job run",
 		zap.Int64("runtime", j.runtime),
-		zap.Int64("added_time", j.addedTime),
+		zap.Int64("added_time", j.addedTime.UnixMilli()),
 		zap.Int64("now", tickTime),
 		zap.Int64("real_gap", j.runtime-tickTime),
-		zap.Int64("added_gap", tickTime-j.addedTime))
+		zap.Int64("added_gap", tickTime-j.addedTime.UnixMilli()))
 	j.job()
 }
 
@@ -79,13 +82,14 @@ func (t *TimingWheel) add(job *Job, after int64, level int) {
 	margin := t.tickMs * (t.wheelSize - t.index)
 	if after < margin {
 		idx := t.index + after/t.tickMs
+		job.after = after % t.tickMs
 		t.log.Debug("job added",
 			zap.Int("level", level),
 			zap.Int64("index", idx),
 			zap.Int64("gap", after),
 			zap.Int64("after", job.after),
 			zap.Int64("runtime", job.runtime),
-			zap.Int64("now", t.now))
+			zap.Int64("now", t.timestamp()))
 		t.slots[idx] = append(t.slots[idx], job)
 	} else {
 		if t.next == nil {
@@ -95,58 +99,56 @@ func (t *TimingWheel) add(job *Job, after int64, level int) {
 	}
 }
 
-func (t *TimingWheel) reAdd(job *Job) {
-	fmt.Println("job readd")
-	t.add(job, job.runtime-t.now, 0)
-}
-
-func (t *TimingWheel) advance() []*Job {
+func (t *TimingWheel) advance(now time.Time) []*Job {
 	jobs := t.slots[t.index]
 	t.slots[t.index] = make([]*Job, 0)
 	t.index = t.index + 1
+	t.now = now
 	if t.index == t.wheelSize {
 		t.index = 0
 		if t.next != nil {
-			nextJobs := t.next.advance()
+			nextJobs := t.next.advance(now)
 			for _, job := range nextJobs {
-				t.reAdd(job)
+				t.add(job, job.after, 0)
 			}
 		}
 	}
-	t.now = t.now + t.tickMs
 	return jobs
 }
 
+func (t *TimingWheel) tickDuration() time.Duration {
+	return t.now.Add(time.Duration(t.tickMs) * time.Millisecond).Sub(time.Now())
+}
+
 func (t *TimingWheel) Start() {
-	t.now = timestamp()
+	t.now = time.Now()
 	go func() {
 		updated := true
-		var timer <-chan time.Time
+		ticker := time.NewTicker(t.tickDuration())
 		for {
 			if updated {
-				timer = time.After(time.Millisecond * time.Duration(t.tickMs))
 				updated = false
+				ticker.Reset(t.tickDuration())
 			}
 			select {
-			case tickTime := <-timer:
+			case tickTime := <-ticker.C:
 				t.log.Debug("tick time",
-					zap.Int64("time", tickTime.UnixMilli()),
+					zap.Int64("now", tickTime.UnixMilli()),
 					zap.Int64("cur", timestamp()),
-					zap.Int64("timingWheel now", t.now),
+					zap.Int64("timingWheel now", t.timestamp()),
 					zap.Int64("index", t.index))
-				jobs := t.advance()
+				jobs := t.advance(tickTime)
 				for _, job := range jobs {
 					go job.run(t.log, tickTime.UnixMilli())
 				}
 				updated = true
 			case job := <-t.accept:
-				if job.runtime < t.now {
+				if job.runtime < t.timestamp() {
 					job.added = false
 				} else {
 					job.added = true
 					job.addedTime = t.now
-					job.after = job.runtime - t.now
-					t.add(job, job.after, 0)
+					t.add(job, job.runtime-t.timestamp(), 0)
 				}
 				job.wg.Done()
 			}
@@ -156,9 +158,7 @@ func (t *TimingWheel) Start() {
 
 func (t *TimingWheel) Offer(runtime int64, job func()) bool {
 	transferJob := t.newJob(runtime, job)
-	select {
-	case t.accept <- transferJob:
-	}
+	t.accept <- transferJob
 	transferJob.wg.Wait()
 	return transferJob.added
 }
