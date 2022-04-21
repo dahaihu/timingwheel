@@ -99,7 +99,7 @@ func (t *TimingWheel) add(job *Job, after int64, level int) {
 	}
 }
 
-func (t *TimingWheel) advance(now time.Time) []*Job {
+func (t *TimingWheel) advance() []*Job {
 	jobs := t.slots[t.index]
 	t.slots[t.index] = make([]*Job, 0)
 	t.index = t.index + 1
@@ -107,7 +107,7 @@ func (t *TimingWheel) advance(now time.Time) []*Job {
 	if t.index == t.wheelSize {
 		t.index = 0
 		if t.next != nil {
-			nextJobs := t.next.advance(now)
+			nextJobs := t.next.advance()
 			for _, job := range nextJobs {
 				t.add(job, job.after, 0)
 			}
@@ -132,7 +132,7 @@ func (t *TimingWheel) Start() {
 					zap.Int64("cur", timestamp()),
 					zap.Int64("timingWheel now", t.timestamp()),
 					zap.Int64("index", t.index))
-				jobs := t.advance(tickTime)
+				jobs := t.advance()
 				for _, job := range jobs {
 					go job.run(t.log, tickTime.UnixMilli())
 				}
